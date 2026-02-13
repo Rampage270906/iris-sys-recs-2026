@@ -3,8 +3,8 @@ services:
     build: .
     image: iris-rails-app:latest   
     container_name: rails_app
-    ports:
-      - "8080:3000"                  # host:container
+    expose:
+      - "3000"                  
     environment:
       DATABASE_HOST: mysql
       DATABASE_PORT: 3306
@@ -26,6 +26,18 @@ services:
       MYSQL_ROOT_PASSWORD: rootpassword
     volumes:
       - mysql_data:/var/lib/mysql
+    networks:
+      - backend
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx_proxy
+    ports:
+      - "8081:80"          # Only this is exposed to host
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - rails
     networks:
       - backend
 
