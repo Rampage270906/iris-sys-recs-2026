@@ -1,8 +1,7 @@
 services:
   rails:
     build: .
-    image: iris-rails-app:latest   
-    container_name: rails_app
+    image: iris-rails-app:latest
     expose:
       - "3000"                  
     environment:
