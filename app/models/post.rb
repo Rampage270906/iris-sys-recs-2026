@@ -1,5 +1,5 @@
 class Post < ApplicationRecord
-  belongs_to :user
+  belongs_to :user, optional: true
 
   # Thumbnail image & Resources
   has_one_attached :header_image
