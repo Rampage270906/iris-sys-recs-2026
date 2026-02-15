@@ -1,1 +1,5 @@
-# iris-sys-recs-2026
+In this task, I containerized a Rails application and connected it to a MySQL database using Docker and Docker Compose. The goal was to ensure that the Rails application could communicate with a database running in a separate container within the same Docker network. I created a Dockerfile for the Rails application and configured Docker Compose to run both Rails and MySQL services together. Environment variables were used to configure the database connection inside the Rails application.
+
+Initially, I struggled with database connection errors because the Rails container was attempting to connect before MySQL was fully ready. I learned that container startup order does not guarantee service readiness. Waiting for MySQL to finish initializing before running migrations resolved this issue. Another challenge was understanding how environment variables connect the Rails app to the database service inside Docker’s internal network. Once I correctly configured DATABASE_HOST to reference the MySQL service name, the connection worked smoothly.
+
+By the end of this task, the Rails application successfully connected to MySQL inside Docker. Both services could be started together using Docker Compose, and migrations ran successfully inside the containerized environment.
