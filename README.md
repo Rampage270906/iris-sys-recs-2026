@@ -1,1 +1,3 @@
-# iris-sys-recs-2026
+For rate limiting, I configured Nginx to restrict incoming requests to 2 requests per second per IP. Initially, I defined the rate limit zone but forgot to apply it in the location block, so nothing happened. After adding the enforcement directive, it started working.
+
+While testing, I didn’t see any 503 responses, which made me think the configuration was wrong. Later, I realized that sequential curl requests were not fast enough to trigger the rate limit. When I sent parallel requests, I started seeing 000 responses. I learned that 000 in curl means the connection was dropped before an HTTP response was fully returned, which still indicates rate limiting is working. That clarified the behavior and confirmed my setup was correct.
