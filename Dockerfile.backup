@@ -1,0 +1,23 @@
+FROM alpine:latest
+
+# Install required tools
+RUN apk add --no-cache \
+    mysql-client \
+    tar \
+    gzip \
+    curl \
+    bash \
+    dcron
+
+# Create backup directory
+RUN mkdir -p /backups /nfs_shared
+
+# Copy backup script
+COPY scripts/backup.sh /backup.sh
+RUN chmod +x /backup.sh
+
+# Run backup script every day at 2 AM
+RUN echo "0 2 * * * /backup.sh" | crontab -
+
+# Keep container running
+CMD ["crond", "-f", "-l", "2"]

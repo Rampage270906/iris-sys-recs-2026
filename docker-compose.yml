@@ -20,7 +20,7 @@ services:
     depends_on:
       - mysql
     volumes:
-      - nfs_data:/shared
+      - C:\Users\sidda\OneDrive\Desktop\IRIS_System\iris-sys-recs-2026\shared:/shared
     networks:
       - application
       - storage
@@ -39,7 +39,7 @@ services:
     depends_on:
       - mysql
     volumes:
-      - nfs_data:/shared
+      - C:\Users\sidda\OneDrive\Desktop\IRIS_System\iris-sys-recs-2026\shared:/shared
     networks:
       - application
       - storage
@@ -58,7 +58,7 @@ services:
     depends_on:
       - mysql
     volumes:
-      - nfs_data:/shared
+      - C:\Users\sidda\OneDrive\Desktop\IRIS_System\iris-sys-recs-2026\shared:/shared
     networks:
       - application
       - storage
@@ -84,7 +84,7 @@ services:
     ports:
       - "8081:80"
     volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
       - rails1
@@ -93,6 +93,7 @@ services:
     networks:
       - public
       - application
+      - monitoring
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
@@ -128,20 +129,19 @@ services:
 # NFS Server for shared file storage
 # All 3 rails replicas mount this at /shared
   nfs-server:
-    image: itsthenetwork/nfs-server:alpine
+    image: alpine:latest
     container_name: nfs_server
     networks: 
       - storage
     volumes:
       - nfs_data:/exports
-    environment:
-      SHARED_DIRECTORY: /exports
+    command: sleep 1000000
     cap_add:
       - SYS_ADMIN
       - NET_ADMIN
   
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter
     container_name: node_exporter
     expose:
       - "9100"
@@ -149,14 +149,12 @@ services:
       - monitoring
   
   nginx-exporter:
-    image: nginx/nginx-prometheus-exporter
+    image: nginx:latest
     container_name: nginx_exporter
     expose:
       - "9113"
     networks:
       - monitoring
-    command:
-      - -nginx.scrape-uri=http://nginx:8888/nginx_status
   
   backup-service:
     build:
@@ -167,8 +165,8 @@ services:
       - storage
       - application
     volumes:
-      - nfs_data:/nfs_shared
-      - backups:/backups
+      - /c/Users/sidda/OneDrive/Desktop/IRIS_System/iris-sys-recs-2026/shared:/nfs_shared
+      - /c/Users/sidda/OneDrive/Desktop/IRIS_System/iris-sys-recs-2026/backups:/backups
     environment:
       DATABASE_HOST: mysql
       DATABASE_USER: appuser
