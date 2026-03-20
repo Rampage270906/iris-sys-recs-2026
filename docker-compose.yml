@@ -1,10 +1,7 @@
-# IRIS Round 2 - Production Infrastructure
 # 4-network architecture with shared storage and automated backups
 # Each service only connects to networks it strictly needs
 services:
 # ===== APPLICATION LAYER =====
-# 3 Rails replicas for load balancing
-# Connected to: application (database), storage (NFS files)
   rails1:
     build: .
     image: iris-rails-app:latest
@@ -63,8 +60,6 @@ services:
       - application
       - storage
 
-# MySQL database
-# Only accessible from application network (rails apps only)
   mysql:
     image: mysql:8.0
     container_name: mysql_db
@@ -83,6 +78,7 @@ services:
     container_name: nginx_proxy
     ports:
       - "8081:80"
+      - "8888:8888"
     volumes:
       - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
@@ -111,27 +107,28 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
-    ports:
-      - "9090:9090"
+    expose:
+      - "9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     networks:
       - monitoring
 
-  grafana:   
+  grafana:
     image: grafana/grafana:latest
     container_name: grafana
-    ports:
-      - "3001:3000"
+    expose:
+      - "3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
     networks:
       - monitoring
 
-# NFS Server for shared file storage
-# All 3 rails replicas mount this at /shared
   nfs-server:
     image: alpine:latest
     container_name: nfs_server
-    networks: 
+    networks:
       - storage
     volumes:
       - nfs_data:/exports
@@ -139,7 +136,7 @@ services:
     cap_add:
       - SYS_ADMIN
       - NET_ADMIN
-  
+
   node-exporter:
     image: prom/node-exporter
     container_name: node_exporter
@@ -147,15 +144,19 @@ services:
       - "9100"
     networks:
       - monitoring
-  
+
   nginx-exporter:
-    image: nginx:latest
+    image: nginx/nginx-prometheus-exporter:latest
     container_name: nginx_exporter
+    command:
+      - --nginx.scrape-uri=http://nginx_proxy:8888/nginx_status
     expose:
       - "9113"
+    depends_on:
+      - nginx
     networks:
       - monitoring
-  
+
   backup-service:
     build:
       context: .
@@ -173,9 +174,7 @@ services:
       DATABASE_PASSWORD: apppassword
     depends_on:
       - mysql
-      
-# ===== NETWORKS =====
-# 4 separate networks following Principle of Least Privilege
+
 networks:
   public:
     driver: bridge
@@ -185,7 +184,9 @@ networks:
     driver: bridge
   monitoring:
     driver: bridge
+
 volumes:
   mysql_data:
   nfs_data:
   backups:
+  grafana_data:

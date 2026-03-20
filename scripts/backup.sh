@@ -22,7 +22,7 @@ mkdir -p $TEMP_DIR
 
 # Backup MySQL database
 echo "[$(date)] Backing up MySQL database..."
-mysqldump -h $DB_HOST -u $DB_USER -p$DB_PASSWORD $DB_NAME > $TEMP_DIR/database.sql
+mysqldump -h $DB_HOST -u $DB_USER -p$DB_PASSWORD --ssl-mode=DISABLED --no-tablespaces $DB_NAME > $TEMP_DIR/database.sql
 
 # Backup NFS shared storage
 echo "[$(date)] Backing up NFS shared storage..."
