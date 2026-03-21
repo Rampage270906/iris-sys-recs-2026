@@ -1,25 +1,32 @@
 global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+  scrape_interval: 15s     # scrape all targets every 15s by default
+  evaluation_interval: 15s # evaluate alerting rules every 15s
 
 scrape_configs:
+  # Host-level metrics — CPU, memory, disk, network from the WSL2 VM
   - job_name: "node-exporter"
     static_configs:
       - targets: ["node-exporter:9100"]
 
+  # Per-container metrics — CPU, memory, network per container via Docker API
   - job_name: "cadvisor"
     static_configs:
       - targets: ["cadvisor:8080"]
 
+  # NGINX metrics — request rate, active connections, dropped connections
+  # nginx-prometheus-exporter translates stub_status into Prometheus format
   - job_name: "nginx"
     static_configs:
       - targets: ["nginx-exporter:9113"]
 
+  # Rails app replicas — scrapes /metrics on each replica
+  # Currently returns connection refused (Rails has no Prometheus client installed)
+  # Kept in config as placeholder for future instrumentation
   - job_name: "rails-app"
+    metrics_path: "/metrics"
+    scrape_interval: 10s   # faster interval since app metrics change quickly
     static_configs:
       - targets:
         - "rails1:3000"
         - "rails2:3000"
         - "rails3:3000"
-    metrics_path: "/metrics"
-    scrape_interval: 10s

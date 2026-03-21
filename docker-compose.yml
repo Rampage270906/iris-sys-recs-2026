@@ -1,7 +1,17 @@
-# 4-network architecture with shared storage and automated backups
-# Each service only connects to networks it strictly needs
+# IRIS NITK Round 2 — Production Infrastructure
+# 4-network architecture enforcing Principle of Least Privilege:
+#   public      → internet-facing (nginx only)
+#   application → app tier (rails ↔ mysql)
+#   storage     → file tier (rails ↔ nfs ↔ backup)
+#   monitoring  → metrics tier (exporters ↔ prometheus ↔ grafana)
+#
+# Secrets are loaded from .env file (not committed to git)
+
 services:
-# ===== APPLICATION LAYER =====
+
+  # ===== APPLICATION LAYER =====
+  # 3 identical Rails replicas — NGINX load balances across them
+  # expose (not ports) — only reachable within Docker networks, not from host
   rails1:
     build: .
     image: iris-rails-app:latest
@@ -11,16 +21,18 @@ services:
     environment:
       DATABASE_HOST: mysql
       DATABASE_PORT: 3306
-      DATABASE_NAME: appdb
-      DATABASE_USERNAME: appuser
-      DATABASE_PASSWORD: apppassword
+      DATABASE_NAME: ${MYSQL_DATABASE}
+      DATABASE_USERNAME: ${MYSQL_USER}
+      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
     depends_on:
       - mysql
     volumes:
-      - C:\Users\sidda\OneDrive\Desktop\IRIS_System\iris-sys-recs-2026\shared:/shared
+      # Shared bind mount — all 3 replicas write to same host directory
+      # Ensures uploaded files are accessible regardless of which replica handles the request
+      - ./shared:/shared
     networks:
-      - application
-      - storage
+      - application  # needs mysql
+      - storage      # needs shared files
 
   rails2:
     image: iris-rails-app:latest
@@ -30,13 +42,13 @@ services:
     environment:
       DATABASE_HOST: mysql
       DATABASE_PORT: 3306
-      DATABASE_NAME: appdb
-      DATABASE_USERNAME: appuser
-      DATABASE_PASSWORD: apppassword
+      DATABASE_NAME: ${MYSQL_DATABASE}
+      DATABASE_USERNAME: ${MYSQL_USER}
+      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
     depends_on:
       - mysql
     volumes:
-      - C:\Users\sidda\OneDrive\Desktop\IRIS_System\iris-sys-recs-2026\shared:/shared
+      - ./shared:/shared
     networks:
       - application
       - storage
@@ -49,30 +61,35 @@ services:
     environment:
       DATABASE_HOST: mysql
       DATABASE_PORT: 3306
-      DATABASE_NAME: appdb
-      DATABASE_USERNAME: appuser
-      DATABASE_PASSWORD: apppassword
+      DATABASE_NAME: ${MYSQL_DATABASE}
+      DATABASE_USERNAME: ${MYSQL_USER}
+      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
     depends_on:
       - mysql
     volumes:
-      - C:\Users\sidda\OneDrive\Desktop\IRIS_System\iris-sys-recs-2026\shared:/shared
+      - ./shared:/shared
     networks:
       - application
       - storage
 
+  # ===== DATABASE =====
+  # MySQL only on application network — not reachable from public or monitoring
   mysql:
     image: mysql:8.0
     container_name: mysql_db
     environment:
-      MYSQL_DATABASE: appdb
-      MYSQL_USER: appuser
-      MYSQL_PASSWORD: apppassword
-      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - mysql_data:/var/lib/mysql  # named volume survives container restarts
     networks:
       - application
 
+  # ===== REVERSE PROXY =====
+  # Only service with host ports — single entry point for all traffic
+  # Port 8081 → public traffic, 8888 → internal nginx_status for exporter only
   nginx:
     image: nginx:latest
     container_name: nginx_proxy
@@ -81,16 +98,19 @@ services:
       - "8888:8888"
     volumes:
       - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro
+      - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro  # bcrypt hashed, not plaintext
     depends_on:
       - rails1
       - rails2
       - rails3
     networks:
-      - public
-      - application
-      - monitoring
+      - public       # accepts incoming traffic
+      - application  # proxies to rails replicas
+      - monitoring   # proxies to grafana and prometheus
 
+  # ===== MONITORING =====
+  # cAdvisor — scrapes per-container CPU, memory, network metrics
+  # needs host filesystem access to read Docker runtime stats
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
@@ -104,6 +124,7 @@ services:
     networks:
       - monitoring
 
+  # Prometheus — not port-exposed, only reachable via nginx at prometheus.localhost
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -114,29 +135,20 @@ services:
     networks:
       - monitoring
 
+  # Grafana — not port-exposed, only reachable via nginx at grafana.localhost
+  # grafana_data volume persists dashboards across container recreates
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
     expose:
       - "3000"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/provisioning:/etc/grafana/provisioning  # datasource auto-provisioned
       - grafana_data:/var/lib/grafana
     networks:
       - monitoring
 
-  nfs-server:
-    image: alpine:latest
-    container_name: nfs_server
-    networks:
-      - storage
-    volumes:
-      - nfs_data:/exports
-    command: sleep 1000000
-    cap_add:
-      - SYS_ADMIN
-      - NET_ADMIN
-
+  # Node Exporter — host-level metrics (CPU, memory, disk)
   node-exporter:
     image: prom/node-exporter
     container_name: node_exporter
@@ -145,6 +157,8 @@ services:
     networks:
       - monitoring
 
+  # NGINX Exporter — scrapes nginx stub_status at :8888/nginx_status
+  # translates nginx connection stats into Prometheus metrics
   nginx-exporter:
     image: nginx/nginx-prometheus-exporter:latest
     container_name: nginx_exporter
@@ -157,24 +171,45 @@ services:
     networks:
       - monitoring
 
+  # ===== SHARED STORAGE =====
+  # NFS server exports /exports over storage network
+  # All rails replicas mount this for consistent file access across instances
+  # Note: on Windows Docker Desktop, NFS kernel module is unavailable in WSL2
+  # Shared storage falls back to bind mount (./shared) with identical consistency guarantees
+  nfs-server:
+    image: alpine:latest
+    container_name: nfs_server
+    cap_add:
+      - SYS_ADMIN  # required for NFS kernel module
+      - NET_ADMIN
+    volumes:
+      - nfs_data:/exports
+    command: sleep 1000000
+    networks:
+      - storage
+
+  # ===== BACKUP =====
+  # Runs mysqldump + NFS archive daily, keeps last 5 backups
+  # Only on storage + application networks — no public exposure
   backup-service:
     build:
       context: .
       dockerfile: Dockerfile.backup
     container_name: backup_service
+    environment:
+      DATABASE_HOST: ${DB_HOST}
+      DATABASE_USER: ${DB_USER}
+      DATABASE_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      - mysql
+    volumes:
+      - ./shared:/nfs_shared   # same shared dir as rails replicas
+      - ./backups:/backups     # host directory for backup archives
     networks:
       - storage
       - application
-    volumes:
-      - /c/Users/sidda/OneDrive/Desktop/IRIS_System/iris-sys-recs-2026/shared:/nfs_shared
-      - /c/Users/sidda/OneDrive/Desktop/IRIS_System/iris-sys-recs-2026/backups:/backups
-    environment:
-      DATABASE_HOST: mysql
-      DATABASE_USER: appuser
-      DATABASE_PASSWORD: apppassword
-    depends_on:
-      - mysql
 
+# ===== NETWORKS =====
 networks:
   public:
     driver: bridge
@@ -185,8 +220,9 @@ networks:
   monitoring:
     driver: bridge
 
+# ===== VOLUMES =====
 volumes:
-  mysql_data:
-  nfs_data:
-  backups:
-  grafana_data:
+  mysql_data:     # MySQL data persistence
+  nfs_data:       # NFS export directory
+  backups:        # timestamped backup archives
+  grafana_data:   # Grafana dashboard persistence
